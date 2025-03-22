@@ -151,6 +151,39 @@ export function createApp(client: MongoDBClient) {
     }
   });
 
+  // Search pastes
+  app.get("/api/pastes/search", async (req: Request, res: Response) => {
+    try {
+      const query = req.query.q as string;
+      const page = req.query.page ? parseInt(req.query.page as string) : 1;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      const syntax = (req.query.syntax as string) || null;
+      const tags = req.query.tags as string;
+
+      // Parse tags if provided
+      let parsedTags: string[] = [];
+      if (tags) {
+        try {
+          parsedTags = JSON.parse(tags);
+        } catch (e) {
+          parsedTags = tags.split(",").map((tag) => tag.trim());
+        }
+      }
+
+      const result = await dbClient.searchPublicPastes({
+        query,
+        page,
+        limit,
+        syntax,
+        tags: parsedTags,
+      });
+
+      res.status(200).json(result);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   // Get a paste by ID
   app.get(
     "/api/pastes/:shortId",
@@ -334,39 +367,6 @@ export function createApp(client: MongoDBClient) {
     }
   );
 
-  // Search pastes
-  app.get("/api/pastes/search", async (req: Request, res: Response) => {
-    try {
-      const query = req.query.query as string;
-      const page = req.query.page ? parseInt(req.query.page as string) : 1;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
-      const syntax = (req.query.syntax as string) || null;
-      const tags = req.query.tags as string;
-
-      // Parse tags if provided
-      let parsedTags: string[] = [];
-      if (tags) {
-        try {
-          parsedTags = JSON.parse(tags);
-        } catch (e) {
-          parsedTags = tags.split(",").map((tag) => tag.trim());
-        }
-      }
-
-      const result = await dbClient.searchPublicPastes({
-        query,
-        page,
-        limit,
-        syntax,
-        tags: parsedTags,
-      });
-
-      res.status(200).json(result);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
-
   // ----- User Routes -----
 
   // User registration
@@ -461,14 +461,12 @@ export function createApp(client: MongoDBClient) {
 
         const user = await dbClient.getUserById(userId);
 
-        res
-          .status(200)
-          .json({
-            id: user._id,
-            username: user.username,
-            email: user.email,
-            createdAt: user.createdAt,
-          });
+        res.status(200).json({
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          createdAt: user.createdAt,
+        });
       } catch (error: any) {
         res.status(400).json({ message: error.message });
       }

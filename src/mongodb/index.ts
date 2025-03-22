@@ -361,6 +361,7 @@ class MongoDBClient {
           });
         } catch (err) {
           // Index might already exist, continue
+          console.error("Error creating text index:", err);
         }
 
         searchQuery.$text = { $search: query };
@@ -369,11 +370,6 @@ class MongoDBClient {
       // Add syntax filter if provided
       if (syntax) {
         searchQuery.syntax = syntax;
-      }
-
-      // Add tags filter if provided
-      if (tags && tags.length > 0) {
-        searchQuery.tags = { $in: tags };
       }
 
       // First get total count for pagination
