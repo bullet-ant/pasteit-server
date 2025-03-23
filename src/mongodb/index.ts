@@ -20,6 +20,7 @@ import {
 dotenv.config();
 
 const PASTES_DB = "pastes";
+const PASTES_COLLECTION = "pastes";
 const USERS_COLLECTION = "users";
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || "catonkeyboard";
@@ -54,15 +55,15 @@ class MongoDBClient {
 
     // Pastes indexes
     await this.db
-      .collection(PASTES_DB)
+      .collection(PASTES_COLLECTION)
       .createIndex({ shortId: 1 }, { unique: true });
-    await this.db.collection(PASTES_DB).createIndex({ userId: 1 });
-    await this.db.collection(PASTES_DB).createIndex({ createdAt: -1 });
-    await this.db.collection(PASTES_DB).createIndex({ expiresAt: 1 });
+    await this.db.collection(PASTES_COLLECTION).createIndex({ userId: 1 });
+    await this.db.collection(PASTES_COLLECTION).createIndex({ createdAt: -1 });
+    await this.db.collection(PASTES_COLLECTION).createIndex({ expiresAt: 1 });
     await this.db
-      .collection(PASTES_DB)
+      .collection(PASTES_COLLECTION)
       .createIndex({ visibility: 1, createdAt: -1 });
-    await this.db.collection(PASTES_DB).createIndex({ tags: 1 });
+    await this.db.collection(PASTES_COLLECTION).createIndex({ tags: 1 });
 
     // Users indexes
     await this.db
@@ -90,11 +91,11 @@ class MongoDBClient {
     expiresAt = null,
     userId = null,
     password = null,
-    tags = [],
   }: PasteOptions): Promise<Paste> {
     try {
       if (!this.db) throw new Error("Database not connected");
-      const collection = this.db.collection<Paste>(PASTES_DB);
+
+      const collection = this.db.collection<Paste>(PASTES_COLLECTION);
 
       // Validate input
       if (!content) {
@@ -105,8 +106,6 @@ class MongoDBClient {
       if (visibility === "private" && !userId) {
         throw new Error("User must be logged in to create private pastes");
       }
-
-      const isProtected = password ? true : false;
 
       // Handle password
       let hashedPassword: string | null = null;
@@ -124,11 +123,9 @@ class MongoDBClient {
         createdAt: new Date(),
         expiresAt: expiresAt ? new Date(expiresAt) : null,
         userId: userId ? new ObjectId(userId) : null,
-        views: 0,
-        isProtected,
+        isProtected: !!password,
         password: hashedPassword,
         isDeleted: false,
-        tags: tags || [],
       };
 
       const result = await collection.insertOne(paste);
@@ -141,11 +138,12 @@ class MongoDBClient {
 
   async getPasteById(
     shortId: string,
-    { incrementViews = true, password = null }: GetPasteOptions = {}
+    { password = null }: GetPasteOptions = {}
   ): Promise<Paste> {
     try {
       if (!this.db) throw new Error("Database not connected");
-      const collection = this.db.collection<Paste>(PASTES_DB);
+
+      const collection = this.db.collection<Paste>(PASTES_COLLECTION);
 
       // Find paste by shortId and not deleted
       const paste = await collection.findOne({
@@ -171,11 +169,9 @@ class MongoDBClient {
             syntax: paste.syntax,
             visibility: paste.visibility,
             userId: paste.userId,
-            views: paste.views,
+            isProtected: true,
             password: paste.password,
             isDeleted: paste.isDeleted,
-            tags: paste.tags,
-            isProtected: true as any,
           };
         }
 
@@ -183,12 +179,6 @@ class MongoDBClient {
         if (!passwordMatch) {
           throw new Error("Invalid password");
         }
-      }
-
-      // Increment view count if requested
-      if (incrementViews) {
-        await collection.updateOne({ _id: paste._id }, { $inc: { views: 1 } });
-        paste.views += 1;
       }
 
       return paste;
@@ -204,7 +194,8 @@ class MongoDBClient {
   ): Promise<boolean> {
     try {
       if (!this.db) throw new Error("Database not connected");
-      const collection = this.db.collection<Paste>(PASTES_DB);
+
+      const collection = this.db.collection<Paste>(PASTES_COLLECTION);
 
       // Find the paste first to validate ownership
       const paste = await collection.findOne({ shortId });
@@ -238,7 +229,8 @@ class MongoDBClient {
   ): Promise<boolean> {
     try {
       if (!this.db) throw new Error("Database not connected");
-      const collection = this.db.collection<Paste>(PASTES_DB);
+
+      const collection = this.db.collection<Paste>(PASTES_COLLECTION);
 
       // Find the paste first to validate ownership
       const paste = await collection.findOne({ shortId });
@@ -258,7 +250,6 @@ class MongoDBClient {
         shortId: sid,
         createdAt,
         userId: uid,
-        views,
         ...allowedUpdates
       } = updates;
 
@@ -285,11 +276,11 @@ class MongoDBClient {
   async getRecentPublicPastes({
     page = 1,
     limit = 20,
-    syntax = null,
   }: PaginationOptions): Promise<PaginationResult<Paste>> {
     try {
       if (!this.db) throw new Error("Database not connected");
-      const collection = this.db.collection<Paste>(PASTES_DB);
+
+      const collection = this.db.collection<Paste>(PASTES_COLLECTION);
       const skip = (page - 1) * limit;
 
       // Build query - public, not deleted, not expired
@@ -298,11 +289,6 @@ class MongoDBClient {
         isDeleted: false,
         $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
       };
-
-      // Add syntax filter if provided
-      if (syntax) {
-        query.syntax = syntax;
-      }
 
       // First get total count for pagination
       const total = await collection.countDocuments(query);
@@ -313,7 +299,7 @@ class MongoDBClient {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .project<Paste>({ password: 0 }) // Exclude content and password from results
+        .project<Paste>({ password: 0 }) // Exclude password from results
         .toArray();
 
       return {
@@ -335,12 +321,11 @@ class MongoDBClient {
     query,
     page = 1,
     limit = 20,
-    syntax = null,
-    tags = [],
   }: SearchOptions): Promise<PaginationResult<Paste>> {
     try {
       if (!this.db) throw new Error("Database not connected");
-      const collection = this.db.collection<Paste>(PASTES_DB);
+
+      const collection = this.db.collection<Paste>(PASTES_COLLECTION);
       const skip = (page - 1) * limit;
 
       // Build query - public, not deleted, not expired
@@ -357,7 +342,6 @@ class MongoDBClient {
           await collection.createIndex({
             title: "text",
             content: "text",
-            tags: "text",
           });
         } catch (err) {
           // Index might already exist, continue
@@ -365,11 +349,6 @@ class MongoDBClient {
         }
 
         searchQuery.$text = { $search: query };
-      }
-
-      // Add syntax filter if provided
-      if (syntax) {
-        searchQuery.syntax = syntax;
       }
 
       // First get total count for pagination
@@ -381,7 +360,7 @@ class MongoDBClient {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .project<Paste>({ password: 0 }) // Exclude content and password from results
+        .project<Paste>({ password: 0 }) // Exclude password from results
         .toArray();
 
       return {
@@ -401,11 +380,12 @@ class MongoDBClient {
 
   async getUserPastes(
     userId: string,
-    { page = 1, limit = 20, visibility = null }: PaginationOptions
+    { page = 1, limit = 20 }: PaginationOptions
   ): Promise<PaginationResult<Paste>> {
     try {
       if (!this.db) throw new Error("Database not connected");
-      const collection = this.db.collection<Paste>(PASTES_DB);
+
+      const collection = this.db.collection<Paste>(PASTES_COLLECTION);
       const skip = (page - 1) * limit;
 
       // Build query - by user, not deleted, not expired
@@ -414,11 +394,6 @@ class MongoDBClient {
         isDeleted: false,
         $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
       };
-
-      // Add visibility filter if provided
-      if (visibility) {
-        query.visibility = visibility;
-      }
 
       // First get total count for pagination
       const total = await collection.countDocuments(query);
@@ -429,7 +404,7 @@ class MongoDBClient {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .project<Paste>({ password: 0 }) // Exclude content and password from results
+        .project<Paste>({ password: 0 }) // Exclude password from results
         .toArray();
 
       return {
@@ -455,18 +430,20 @@ class MongoDBClient {
   }> {
     try {
       if (!this.db) throw new Error("Database not connected");
+
       if (!username || !email || !password) {
         throw new Error("Username, email, and password are required");
       }
+
       const collection = this.db.collection<User>(USERS_COLLECTION);
 
       // Check if username or email already exists
       const existingUser = await collection.findOne({
-        $or: [{ email }],
+        $or: [{ email }, { username }],
       });
 
       if (existingUser && existingUser.email === email) {
-        throw new Error("Email already exists");
+        throw new Error("Email or username already exists");
       }
 
       // Hash password
@@ -518,6 +495,7 @@ class MongoDBClient {
   }> {
     try {
       if (!this.db) throw new Error("Database not connected");
+
       const collection = this.db.collection<User>(USERS_COLLECTION);
 
       // Find user by email
@@ -573,9 +551,33 @@ class MongoDBClient {
   ): Promise<Omit<User, "password">> {
     try {
       if (!this.db) throw new Error("Database not connected");
+
       const collection = this.db.collection<User>(USERS_COLLECTION);
 
       const user = await collection.findOne({ _id: new ObjectId(userId) });
+
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      // Return user without password
+      const { password, ...userWithoutPassword } = user;
+      return userWithoutPassword;
+    } catch (error) {
+      console.error("Error getting user:", error);
+      throw error;
+    }
+  }
+
+  async getUserByUsername(
+    username: string | ObjectId
+  ): Promise<Omit<User, "password">> {
+    try {
+      if (!this.db) throw new Error("Database not connected");
+
+      const collection = this.db.collection<User>(USERS_COLLECTION);
+
+      const user = await collection.findOne({ _id: new ObjectId(username) });
 
       if (!user) {
         throw new Error("User not found");
@@ -596,10 +598,12 @@ class MongoDBClient {
   ): Promise<boolean> {
     try {
       if (!this.db) throw new Error("Database not connected");
+
       const collection = this.db.collection<User>(USERS_COLLECTION);
 
       // Prevent updating certain fields
-      const { _id, role, createdAt, password, ...allowedUpdates } = updates;
+      const { _id, username, role, createdAt, password, ...allowedUpdates } =
+        updates;
 
       // Handle password update if provided
       if (updates.password) {
@@ -630,7 +634,8 @@ class MongoDBClient {
   async cleanupExpiredPastes(): Promise<number> {
     try {
       if (!this.db) throw new Error("Database not connected");
-      const collection = this.db.collection<Paste>(PASTES_DB);
+
+      const collection = this.db.collection<Paste>(PASTES_COLLECTION);
 
       // Mark expired pastes as deleted
       const result = await collection.updateMany(

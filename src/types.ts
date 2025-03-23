@@ -26,12 +26,10 @@ export interface Paste {
   createdAt: Date;
   updatedAt?: Date;
   expiresAt: Date | null;
-  userId: ObjectId | null;
-  views: number;
+  userId: ObjectId | string | null;
   password: string | null;
   isDeleted: boolean;
-  tags: string[];
-  isProtected?: boolean;
+  isProtected: boolean;
 }
 
 export interface PasteOptions {
@@ -42,11 +40,9 @@ export interface PasteOptions {
   expiresAt?: Date | null;
   userId?: string | ObjectId | null;
   password?: string | null;
-  tags?: string[];
 }
 
 export interface GetPasteOptions {
-  incrementViews?: boolean;
   password?: string | null;
 }
 
@@ -55,7 +51,6 @@ export interface SearchOptions {
   page?: number;
   limit?: number;
   syntax?: string | null;
-  tags?: string[];
 }
 
 export interface PaginationOptions {

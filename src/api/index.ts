@@ -30,7 +30,7 @@ export const dbClient = initializeDbClient();
 export function createApp(client: MongoDBClient) {
   // Initialize app
   const app = express();
-  // const PORT = process.env.PORT || 3000;
+
   const JWT_SECRET = process.env.JWT_SECRET || "catonkeyboard";
 
   // Middleware
@@ -86,7 +86,7 @@ export function createApp(client: MongoDBClient) {
 
   // Health check route
   app.get("/api/health", (req: Request, res: Response) => {
-    res.status(200).json({ status: "ok", message: "PasteIt API is running" });
+    res.status(200).json({ status: "OK", message: "PasteIt API is running" });
   });
 
   // ----- Paste Routes -----
@@ -157,25 +157,11 @@ export function createApp(client: MongoDBClient) {
       const query = req.query.q as string;
       const page = req.query.page ? parseInt(req.query.page as string) : 1;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
-      const syntax = (req.query.syntax as string) || null;
-      const tags = req.query.tags as string;
-
-      // Parse tags if provided
-      let parsedTags: string[] = [];
-      if (tags) {
-        try {
-          parsedTags = JSON.parse(tags);
-        } catch (e) {
-          parsedTags = tags.split(",").map((tag) => tag.trim());
-        }
-      }
 
       const result = await dbClient.searchPublicPastes({
         query,
         page,
         limit,
-        syntax,
-        tags: parsedTags,
       });
 
       res.status(200).json(result);
@@ -191,10 +177,7 @@ export function createApp(client: MongoDBClient) {
     async (req: AuthRequest, res: Response) => {
       try {
         const { shortId } = req.params;
-
-        const paste = await dbClient.getPasteById(shortId, {
-          incrementViews: true,
-        });
+        const paste = await dbClient.getPasteById(shortId);
 
         // Check if paste is private and user has access
         if (paste.visibility === "private") {
@@ -222,51 +205,53 @@ export function createApp(client: MongoDBClient) {
   );
 
   // Get a protected paste by ID
-  app.post("/api/pastes/:shortId", async (req: AuthRequest, res: Response) => {
-    try {
-      const { shortId } = req.params;
-      const { password } = req.body;
+  app.post(
+    "/api/pastes/:shortId",
+    optionalAuthenticateToken,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const { shortId } = req.params;
+        const { password } = req.body;
 
-      const paste = await dbClient.getPasteById(shortId, {
-        incrementViews: true,
-        password: password || null,
-      });
+        const paste = await dbClient.getPasteById(shortId, {
+          password: password || null,
+        });
 
-      // Check if paste is private and user has access
-      if (paste.visibility === "private") {
-        if (
-          !req.user ||
-          (paste.userId && paste.userId.toString() !== req.user.id.toString())
-        ) {
-          return res
-            .status(403)
-            .json({ message: "You do not have permission to view this paste" });
+        // Check if paste is private and user has access
+        if (paste.visibility === "private") {
+          if (
+            !req.user ||
+            (paste.userId && paste.userId.toString() !== req.user.id.toString())
+          ) {
+            return res.status(403).json({
+              message: "You do not have permission to view this paste",
+            });
+          }
         }
-      }
 
-      res.status(200).json(paste);
-    } catch (error: any) {
-      if (error.message === "Paste not found or has expired") {
-        return res.status(404).json({ message: error.message });
+        res.status(200).json(paste);
+      } catch (error: any) {
+        if (error.message === "Paste not found or has expired") {
+          return res.status(404).json({ message: error.message });
+        }
+        if (error.message === "Invalid password") {
+          return res.status(401).json({ message: error.message });
+        }
+        res.status(400).json({ message: error.message });
       }
-      if (error.message === "Invalid password") {
-        return res.status(401).json({ message: error.message });
-      }
-      res.status(400).json({ message: error.message });
     }
-  });
+  );
 
   // Get raw paste content
-  app.get(
+  app.post(
     "/api/pastes/:shortId/raw",
     optionalAuthenticateToken,
     async (req: AuthRequest, res: Response) => {
       try {
         const { shortId } = req.params;
-        const password = (req.query.password as string) || null;
+        const { password } = req.body;
 
         const paste = await dbClient.getPasteById(shortId, {
-          incrementViews: false,
           password,
         });
 
@@ -282,19 +267,7 @@ export function createApp(client: MongoDBClient) {
           }
         }
 
-        // Set content-type based on syntax
-        if (paste.syntax === "javascript") {
-          res.setHeader("Content-Type", "application/javascript");
-        } else if (paste.syntax === "html") {
-          res.setHeader("Content-Type", "text/html");
-        } else if (paste.syntax === "css") {
-          res.setHeader("Content-Type", "text/css");
-        } else if (paste.syntax === "json") {
-          res.setHeader("Content-Type", "application/json");
-        } else {
-          res.setHeader("Content-Type", "text/plain");
-        }
-
+        res.setHeader("Content-Type", "text/plain");
         res.send(paste.content);
       } catch (error: any) {
         if (error.message === "Paste not found or has expired") {
@@ -452,6 +425,7 @@ export function createApp(client: MongoDBClient) {
     }
   );
 
+  // Get user by ID
   app.get(
     "/api/users/:userId",
     optionalAuthenticateToken,
