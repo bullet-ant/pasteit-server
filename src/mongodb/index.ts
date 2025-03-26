@@ -332,6 +332,7 @@ class MongoDBClient {
       const searchQuery: any = {
         visibility: "public",
         isDeleted: false,
+        isProtected: false,
         $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
       };
 
