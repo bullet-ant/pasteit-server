@@ -39,7 +39,7 @@ class MongoDBClient {
       this.client = new MongoClient(this.uri);
       await this.client.connect();
       this.db = this.client.db(PASTES_DB);
-      console.log("Connected to MongoDB @", this.uri);
+      console.log("Connected to MongoDB ✅");
 
       await this._createIndexes();
 
@@ -626,6 +626,37 @@ class MongoDBClient {
       return result.modifiedCount > 0;
     } catch (error) {
       console.error("Error updating user:", error);
+      throw error;
+    }
+  }
+
+  async changePassword(
+    userId: string | ObjectId,
+    oldPassword: string,
+    newPassword: string
+  ): Promise<boolean> {
+    try {
+      if (!this.db) throw new Error("Database not connected");
+      const collection = this.db.collection<User>(USERS_COLLECTION);
+      const user = await collection.findOne({ _id: new ObjectId(userId) });
+      if (!user) {
+        throw new Error("User not found");
+      }
+      const passwordMatch = await bcrypt.compare(oldPassword, user.password);
+      if (!passwordMatch) {
+        throw new Error("Old password is incorrect");
+      }
+      const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+      const result = await collection.updateOne(
+        { _id: new ObjectId(userId) },
+        { $set: { password: hashedPassword } }
+      );
+      if (result.matchedCount === 0) {
+        throw new Error("User not found");
+      }
+      return result.modifiedCount > 0;
+    } catch (error) {
+      console.error("Error changing password:", error);
       throw error;
     }
   }

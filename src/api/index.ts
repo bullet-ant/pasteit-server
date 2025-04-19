@@ -404,6 +404,34 @@ export function createApp(client: MongoDBClient) {
     }
   );
 
+  // Change password
+  app.post(
+    "/api/auth/change-password",
+    authenticateToken,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const { oldPassword, newPassword } = req.body;
+        if (newPassword.length < 8) {
+          return res
+            .status(400)
+            .json({ message: "Password must be at least 8 characters long" });
+        }
+        const success = await dbClient.changePassword(
+          userId,
+          oldPassword,
+          newPassword
+        );
+        if (!success) {
+          return res.status(401).json({ message: "Invalid old password" });
+        }
+        res.status(200).json({ message: "Password changed successfully" });
+      } catch (error: any) {
+        res.status(400).json({ message: error.message });
+      }
+    }
+  );
+
   // Update user profile
   app.put(
     "/api/auth/me",
@@ -529,7 +557,7 @@ export async function startServer() {
     // Start Express server
     const PORT = process.env.PORT || 3000;
     const server = app.listen(PORT, () => {
-      console.log(`PasteIt Server started at http://localhost:${PORT}`);
+      console.log(`Server started at port ${PORT} ✅`);
     });
 
     return server;
